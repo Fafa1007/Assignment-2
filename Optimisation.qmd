@@ -75,7 +75,7 @@ min_log_likelihood <- function(lamda, counts){
 }
 
 loglike <- sapply(lamda, max_log_likelihood, counts = counts)
-loglike
+head(loglike)
 ```
 
 2.  Plot the likelihood function.
@@ -88,7 +88,7 @@ df <- data.frame(x <- lamda, y <- loglike)
 ggplot(df, aes(x=x, y=y)) +
   geom_point() + 
   labs(
-    title = "Plot of Log Likelhood for the given data set and sequence of lamdas",
+    title = "Plot of Log Likelihood for the given data set and sequence of lamdas",
     y = "y (Poisson Distribution)", 
     x = "Lamda"
   )
@@ -147,7 +147,7 @@ newtons_method <- function(x, lambda){
 }
 
 newtons_lamda_est <- newtons_method(x = counts,lambda =2 )
-print(newtons_lamda_est)
+print(paste("Newtons_lamda_est:",newtons_lamda_est))
 
 ```
 
@@ -181,6 +181,7 @@ taylor_series <- function(lambda, lambda_approx, x){
 library(ggplot2)
 lambda <- seq(0.01, 20, 0.01)
 loglike <- sapply(lambda, max_log_likelihood, counts = counts)
+lambda <- seq(-5, 10, 0.01)
 quadratic <- sapply(lambda, taylor_series, x=counts, lambda_approx = newtons_lamda_est)
 df1 <- data.frame(x <- lamda, y <- loglike)
 df2 <- data.frame(z<-lambda, w <- quadratic)
@@ -193,7 +194,8 @@ ggplot() +
     y = "y (Poisson Distribution)", 
     x = "Lamda"
   ) +
-  geom_vline(xintercept = newtons_lamda_est)
+  geom_vline(xintercept = newtons_lamda_est)+
+  scale_color_manual(values = c("Poisson Log-Likelihood Function" = "red", "Quadratic Approximation Using Taylor Series" = "blue"))
 ```
 
 8.  Can you find an estimate of the standard error for your λ estimate?
@@ -224,27 +226,29 @@ For the following data assume the model (Poisson Regression): $Y_i = Poisson(\la
 
 ```{r}
 y <- c(2,4,3,0,1,4,3,6,10,7)
-
 x <- c(0.49909145, 1.24373850, 0.34376255, 0.03833630, 0.09699331, 
        0.19469526, 0.21237902, 1.56276200, 1.56909233, 1.88487024)
-
-prob <- dpois(y, lambda = x)
-df <- data.frame(x=x, y= prob)
-library(ggplot2)
-ggplot(df, aes(x=x,y=y)) +
-  geom_point()
 ```
 
 1.  Use R’s `nlm()` function to maximise the likelihood, give parameter estimates and their standard errors. Note that here there is a parameter vector: two parameters.
 
 ```{r}
-min_log_likelihood <- function(lamda, x){
-  loglike <- sum(dpois(x, lamda, log=TRUE))
+# Set parameterse a = 1 and b = 2
+alpha <- seq(0,3.5,length=100)                
+beta <- seq(0.1,8,length=100)
+param <- data.frame(alpha,beta)
+
+plot(x=lambda, y=y)
+
+min_log_likelihood <- function(param){
+  loglike <- sum(dpois(y, lambda = param[1] + param[2] * x, log = TRUE))
   return(-loglike)
 }
-nlm_result <- nlm(f= min_log_likelihood, p = mean(x), x=x)
+
+nlm_result <- nlm(f= min_log_likelihood, p = mean(x), x=y, hessian=TRUE)
 print(paste("nlm_estimated_lamda: ", nlm_result$estimate))
 print(paste("nlm_log_likelihood: ", nlm_result$minimum))
+print(paste("nlm_standard_errors:", nlm_result$hessian^-1))
 ```
 
 2.  Use the Gauss-Seidel algorithm to maximise the likelihood.
@@ -256,3 +260,103 @@ print(paste("nlm_log_likelihood: ", nlm_result$minimum))
 5.  When would you use Gauss-Seidel, when Newton’s method?
 
 6.  You can check your answer by fitting the model using R’s `glm()` function (note, no log link).
+
+------------------------------------------------------------------------
+
+# Question 4
+
+The following data are from a Poisson distribution with μi=α+βxi, i.e., every observation has a different mean (expected value), the mean depends on an explanatory variable xi. Note: no log-link.
+
+There are only two parameters. From the code below you should learn how to:
+
+-   find derivatives in R,
+
+-   create and understand contour plots,
+
+-   write an algorithm for Newton’s method for more than one-dimensional problems.
+
+-   use expressions and evaluate them
+
+```{r}
+y <- c(2, 4, 3, 0, 1, 4, 3, 6, 10, 7)
+
+x <- c(0.49909145, 1.24373850, 0.34376255, 0.03833630, 0.09699331, 0.19469526,
+       0.21237902, 1.56276200, 1.56909233, 1.88487024)
+
+llik.full <- function(p) {                         # p is a vector of 2 parameters
+  ll <- sum(dpois(y, lambda = p[1] + p[2] * x, log = TRUE))
+  return(-ll)               
+}
+
+######################################################
+
+# parameter values over which want to calculate loglik
+p1.v <- seq(0,3.5,length=100)                
+p2.v <- seq(0.1,8,length=100)
+
+# create an array with dimensions 10000 and 2, with 
+# every combination of the values 
+pp <- expand.grid(x = p1.v, y = p2.v)      
+                                           
+z <- numeric(length(pp$x))
+
+# calculate loglik at every combination of param. values
+for(i in 1:length(pp$x)) {
+  z[i] <- llik.full(c(pp$x[i],pp$y[i]))          
+}
+
+Z <- matrix(z, nrow = 100)                 
+
+contour(p1.v, p2.v, Z, add = F, nlevels = 20)
+
+######################################################
+
+f <- expression(-(alpha + beta * x) + y * log(alpha + beta * x))
+
+da <- D(f, "alpha")
+db <- D(f, "beta")
+(dab <- D(da, "beta"))
+(daa <- D(da, "alpha"))
+(dbb <- D(db, "beta"))  
+
+init <- c(3, 1)
+tol <- 0.01
+l.current <- init
+alpha <- l.current[1]
+beta <- l.current[2]
+
+contour(p1.v, p2.v, Z, add = FALSE, nlevels = 20, 
+        xlab = expression(alpha), ylab = expression(beta), 
+        main = "log-likelihood surface", las = 1)
+points(alpha, beta, col = "purple", pch = 20)
+
+g1 <- c(sum(eval(da)), sum(eval(db)))
+H <- matrix(c(sum(eval(daa)), sum(eval(dab)), 
+              sum(eval(dab)), sum(eval(dbb))), nrow = 2)
+
+l.new <- l.current - g1 %*% solve(H)
+alpha <- l.new[1]
+beta <- l.new[2]
+
+lines(c(alpha, l.current[1]), c(beta, l.current[2]), 
+      col = "purple", pch = 20, type = "b")
+
+for (i in 1:9) {
+  l.current <- l.new
+  
+  g1 <- c(sum(eval(da)), sum(eval(db)))
+  H <- matrix(c(sum(eval(daa)), sum(eval(dab)), 
+                sum(eval(dab)), sum(eval(dbb))), nrow = 2)
+  
+  l.new <- l.current - g1 %*% solve(H)
+  alpha <- l.new[1]
+  beta <- l.new[2]
+  print(c(l.new))
+  
+  lines(c(alpha, l.current[1]), c(beta, l.current[2]), 
+        col = "purple", pch = 20, type = "b")
+}
+
+out <- optim(par = init, fn = llik.full)
+points(out$par[1], out$par[2], pch = 19, col = "red")
+```

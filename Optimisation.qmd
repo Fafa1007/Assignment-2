@@ -1,0 +1,258 @@
+# Question 1: Bisection Method
+
+1.  Use the bisection method to find the maximum of $g(x) = \frac{log(x)}{1+x}$
+2.  Check your answer x=3.5912
+3.  Check your answer using uniroot
+
+```{r, echo=FALSE, results='hide'}
+g_func <- function(x){
+  return(log(x)/(1+x))
+}
+
+g_firstOrder_derivative <- function(x){
+  return((1+(1/x)-log(x))/((1+x)^2))
+}
+
+library(ggplot2)
+x <- seq(0,20, 0.01)
+y <- g_func(x)
+df <- data.frame(x=x, y=y)
+ggplot(df, aes(x=x, y=y))+
+  geom_point()
+
+# Choose random values for a and b starting values
+a <- 1
+b <- 10
+starting_x <- (a+b)/2
+
+# iteration
+bisection_method <- function(a,b, starting_x){
+  a <- a
+  b <- b
+  x <- starting_x
+  while (abs(b-a) >= 0.0001) {
+    if(g_firstOrder_derivative(a)*g_firstOrder_derivative(x)<=0){
+      a <- a
+      b <- x
+      x <- (a+b)/2
+    } else{
+      a <- x
+      b <- b
+      x <- (a+b)/2
+    }
+  }
+  return(x)
+}
+print(paste("bisection estimate for maximum x value:", bisection_method(a,b,starting_x)))
+
+# Check with uniroot (it finds the root where the function equals zero, therefore need to use teh first order derivative)
+print(paste("uniroot estimate for maximum x value:", uniroot(f = g_firstOrder_derivative, lower = a, upper = b, tol = 0.0001)$root))
+```
+
+------------------------------------------------------------------------
+
+# Question 2: Maximum Likelihood
+
+Assume that these 13 observations are from a Poisson distribution, with rate parameter λ: counts\<- c(3,1,1,3,1,4,3,2,0,5,0,4,2)
+
+```{r, echo=FALSE, results='hide'}
+set.seed(10)
+counts <- c(3,1,1,3,1,4,3,2,0,5,0,4,2)
+```
+
+1.  Set up the likelihood and write a function to calculate the likelihood as a function of the parameter λ
+
+```{r, echo=FALSE, results='hide'}
+lamda <- seq(0.01, 20, 0.01)
+max_log_likelihood <- function(lamda, counts){
+  loglike <- sum(dpois(counts, lamda, log=TRUE))
+  return(loglike)
+}
+
+min_log_likelihood <- function(lamda, counts){
+  loglike <- sum(dpois(counts, lamda, log=TRUE))
+  return(-loglike)
+}
+
+loglike <- sapply(lamda, max_log_likelihood, counts = counts)
+loglike
+```
+
+2.  Plot the likelihood function.
+
+```{r}
+library(ggplot2)
+lamda <- seq(0.01, 20, 0.01)
+loglike <- sapply(lamda, max_log_likelihood, counts = counts)
+df <- data.frame(x <- lamda, y <- loglike)
+ggplot(df, aes(x=x, y=y)) +
+  geom_point() + 
+  labs(
+    title = "Plot of Log Likelhood for the given data set and sequence of lamdas",
+    y = "y (Poisson Distribution)", 
+    x = "Lamda"
+  )
+```
+
+3.  Have a look at the examples at the bottom of the help pages for `optim()` and `nlm()`.
+
+```{r, echo=FALSE, results='hide'}
+?optim()
+?nlm()
+```
+
+4.  Use `optim()` and `nlm()` (non-linear minimization) to find the MLE for λ.
+
+```{r}
+init_lambda <- 3
+
+# Using optim to find the MLE for lamda (maximisation +ve log likelihood)
+optim_result <- optim(par = init_lambda, fn = max_log_likelihood, counts = counts, method = "BFGS", control = list(fnscale = -1))
+print(paste("optim_estimated_lamda: ", optim_result$par))
+print(paste("optim_log_likelihood: ", optim_result$value))
+
+# Using nlm to find the MLE for lamda (minimisation so need -ve log likelihood)
+nlm_result <- nlm(f= min_log_likelihood, p = init_lambda, counts=counts)
+print(paste("nlm_estimated_lamda: ", nlm_result$estimate))
+print(paste("nlm_log_likelihood: ", -nlm_result$minimum))
+```
+
+5.  Use Newton’s method (from scratch) to find the MLE for λ in the above problem. You should get exactly the same answer as with the `optim` and `nlm` functions. You should also be able to check from your plot whether your answer makes sense.
+
+```{r}
+# Define first and second order derivatives, then the quadratic equation
+poisson_firstOrder <- function(x, lambda){
+  return((sum(x)/lambda) - length(x))
+}
+
+poisson_secondOrder <- function(x, lambda){
+  return(-(sum(x)/((lambda)^2)))
+}
+
+updated <- function(x, lambda){
+  return(lambda-(poisson_firstOrder(x, lambda)/poisson_secondOrder(x, lambda)))
+}
+
+# Approximation
+newtons_method <- function(x, lambda){
+  lambda <- lambda
+  repeat{
+    lambda_aprox <- updated(x,lambda)
+    if(abs((lambda-lambda_aprox)/lambda)<= 0.00001){
+      return(lambda_aprox)
+    } else{
+      lambda <- lambda_aprox
+    }
+  }
+}
+
+newtons_lamda_est <- newtons_method(x = counts,lambda =2 )
+print(newtons_lamda_est)
+
+```
+
+6.  Add the MLE to a plot of your function.
+
+```{r}
+library(ggplot2)
+lamda <- seq(0.01, 20, 0.01)
+loglike <- sapply(lamda, max_log_likelihood, counts = counts)
+
+df <- data.frame(x <- lamda, y <- loglike)
+ggplot(df, aes(x=x, y=y)) +
+  geom_point() + 
+  labs(
+    title = "Plot of Log Likelhood for the given data set and sequence of lamdas",
+    subtitle = "Added MLE Estimate using Newton's Method",
+    y = "y (Poisson Distribution)", 
+    x = "Lamda"
+  ) +
+  geom_vline(xintercept = newtons_lamda_est)
+```
+
+7.  Add a quadratic approximation of the likelihood function, around an initial estimate, to your plot.
+
+```{r}
+# Quadratic Approximation is the taylor series
+taylor_series <- function(lambda, lambda_approx, x){
+  return(max_log_likelihood(lambda_approx, x) + ((lambda-lambda_approx)*poisson_firstOrder(x,lambda_approx))+(((lambda-lambda_approx)^2)*((poisson_secondOrder(x, lambda_approx))/factorial(2))))
+}
+
+library(ggplot2)
+lambda <- seq(0.01, 20, 0.01)
+loglike <- sapply(lambda, max_log_likelihood, counts = counts)
+quadratic <- sapply(lambda, taylor_series, x=counts, lambda_approx = newtons_lamda_est)
+df1 <- data.frame(x <- lamda, y <- loglike)
+df2 <- data.frame(z<-lambda, w <- quadratic)
+ggplot() +
+  geom_point(data = df1, aes(x=x, y=y), color="red") +
+  geom_point(data = df2, aes(x=z,y=w), color = "blue") +
+  labs(
+    title = "Plot of Log Likelhood for the given data set and sequence of lamdas",
+    subtitle = "Added quadratic approximation of the likelihood function around an initial estimate",
+    y = "y (Poisson Distribution)", 
+    x = "Lamda"
+  ) +
+  geom_vline(xintercept = newtons_lamda_est)
+```
+
+8.  Can you find an estimate of the standard error for your λ estimate?
+
+```{r}
+# Since optim maximises the log likelihood function, the standard errors is just the Hessian Matrix H (-H)^-1
+optim_result <- optim(par = newtons_lamda_est, fn = max_log_likelihood, counts = counts, method = "BFGS", control = list(fnscale = -1), hessian = TRUE)
+print(paste("Standard Error For Our Lambda Estimate (optim):", (-optim_result$hessian)^-1))
+
+# Since nlm minimises the log likelihood function, the standard errors is already had the minus applied to it so its just Hessian Matrix H (H)^-1
+nlm_result <- nlm(f= min_log_likelihood, p = newtons_lamda_est, counts=counts, hessian = TRUE)
+print(paste("Standard Error For Our Lambda Estimate (nlm):", (nlm_result$hessian)^-1))
+```
+
+9.  λ = average rate. $\hatλ=\bar{y}$.
+
+```{r}
+# Set Lambda Estimate to the average
+lambda_est <- mean(dpois(x = counts, lambda =seq(0.01, 20, 0.01) ))
+lambda_est
+```
+
+------------------------------------------------------------------------
+
+# **Question 3: Maximum Likelihood using `nlm` and Gauss-Seidel**
+
+For the following data assume the model (Poisson Regression): $Y_i = Poisson(\lambda _i)$ and $\lambda_i=a+Bx_i$
+
+```{r}
+y <- c(2,4,3,0,1,4,3,6,10,7)
+
+x <- c(0.49909145, 1.24373850, 0.34376255, 0.03833630, 0.09699331, 
+       0.19469526, 0.21237902, 1.56276200, 1.56909233, 1.88487024)
+
+prob <- dpois(y, lambda = x)
+df <- data.frame(x=x, y= prob)
+library(ggplot2)
+ggplot(df, aes(x=x,y=y)) +
+  geom_point()
+```
+
+1.  Use R’s `nlm()` function to maximise the likelihood, give parameter estimates and their standard errors. Note that here there is a parameter vector: two parameters.
+
+```{r}
+min_log_likelihood <- function(lamda, x){
+  loglike <- sum(dpois(x, lamda, log=TRUE))
+  return(-loglike)
+}
+nlm_result <- nlm(f= min_log_likelihood, p = mean(x), x=x)
+print(paste("nlm_estimated_lamda: ", nlm_result$estimate))
+print(paste("nlm_log_likelihood: ", nlm_result$minimum))
+```
+
+2.  Use the Gauss-Seidel algorithm to maximise the likelihood.
+
+3.  Do you get the same answer?
+
+4.  What about Newton’s method for this problem? (Hint: ℓ′ is a vector, ℓ″ is a matrix.)
+
+5.  When would you use Gauss-Seidel, when Newton’s method?
+
+6.  You can check your answer by fitting the model using R’s `glm()` function (note, no log link).
